@@ -1,188 +1,91 @@
 # CLD-9-style daily-sachet recommendation engine
 
-Take-home: a small, fully runnable **Rust** recommendation engine that mirrors CLD-9’s public product idea — a short quiz, an algorithm that matches answers to **compounds / doses / combinations**, and one **daily drink-mix packet** of **4–8 actives** instead of a cabinet of bottles.
+A small, runnable **Rust** engine that mirrors CLD-9's product: a quiz, an algorithm that matches answers to compounds and doses, and one daily drink-mix packet of 4-8 actives instead of a cabinet of bottles.
 
-**Not medical advice.** This is an educational assignment. It does not diagnose, treat, or replace a clinician. Persona B’s snoring + witnessed apneas are a medical-referral flag, not a supplement problem.
+**Not medical advice.** This is an educational take-home. It does not diagnose, treat, or replace a clinician. Persona B's snoring plus witnessed apneas is a medical-referral flag, not a supplement problem.
 
 ---
 
-## Quick start (evaluator)
+## Quick start
 
-Needs a Rust toolchain (`rustc` / `cargo`). No other setup, no API keys, no extra crates.
+Needs a Rust toolchain (`rustc` / `cargo`). No other setup, no API keys, no extra crates for the core engine.
 
 ```bash
 cargo test
 cargo run
-cargo run --release
 cargo run -- --persona A
-cargo run -- --persona B
-cargo run -- --persona C
-cargo run -- --persona K
 cargo run -- --persona A --allergy ashwagandha
-cargo run -- --persona C --allergy caffeine
 cargo run -- --demo-allergy
 cargo run -- --write-outputs
+cargo run -- --tui
 ```
 
-`cargo run` prints ranked stacks for **A, B, C, K** plus the worked allergy demo.
+`cargo run` prints ranked stacks for personas A, B, C, K, plus a worked allergy demo. `--tui` opens an interactive picker (ratatui) with a live persona list, an allergy field, and a scrolling result pane.
 
-Sample artifacts (already generated):
-
-- `outputs/persona_a.md` … `outputs/persona_k.md`
-- `outputs/allergy_demo.md`
-- `outputs/results.md` (all of the above in one file)
+Sample artifacts are already committed under `outputs/`.
 
 ---
 
-## Alignment with CLD-9 product
+## How it works
 
-CLD-9’s public site ([cld9.ai](https://www.cld9.ai/), [custom builder](https://www.cld9.ai/custom)) describes three steps:
+1. **Vectorize.** Persona quiz answers and each catalog ingredient map onto the same 18-dimension benefit space (`src/features.rs`, `src/persona.rs`, `src/catalog.rs`).
+2. **Score.** Cosine similarity between the two vectors, blended with a goal-alignment bonus and a combo bonus for pairs that work together (theanine + coffee, magnesium + a sleep goal).
+3. **Filter for safety.** Allergies, medications, and conditions can hard-block or penalize an ingredient. A hard block always wins — goal fit cannot undo it.
+4. **Assemble.** Greedy pick of 4-8 actives, capped at one stimulant, two bulky powders, two vitamins.
 
-1. **Quiz** — goals, lifestyle, diet, health, what you already take. No required blood test.
-2. **Algorithm** — match answers to the right compounds, doses, and combinations; avoid overlap / waste.
-3. **One daily sachet** — a named, pre-measured packet that replaces 6–10 separate bottles. Mix in 250–300 ml cold water. Flavors: Orange Popsicle / Unflavored. 30 servings.
+```mermaid
+flowchart TD
+    A["Ingredient enters scoring<br/>one of 20 catalog actives"] --> B["Cosine similarity<br/>persona vs. ingredient, 18-dim"]
+    B --> C["Goal bonus lookup<br/>(goal, ingredient) → 0.0-1.0"]
+    C --> D["Blend into raw score<br/>0.72 × cosine + 0.28 × goal bonus"]
+    D --> E["Safety check<br/>allergies · meds · conditions"]
+    E --> F{Hard block?}
+    F -->|No| G["Apply severity × combo bonus"]
+    F -->|Yes| H["Score forced to 0<br/>excluded — goal fit cannot override"]
+    G --> I["Ranked into stack<br/>top 4-8 actives"]
 
-This repo follows that shape on purpose:
-
-| CLD-9 product | This take-home |
-|---|---|
-| Short quiz → formula | Structured persona/quiz record → 18-dim feature vector |
-| Match compounds / doses / combos | Cosine + goal bonus + combo notes, then a **listed catalog dose** |
-| Real custom-builder library | **Exact 20 actives + offered doses** from `initialIngredients` on `/custom` |
-| One packet vs 6–10 bottles | Ranked **4–8** actives, diversity-capped so the drink stays realistic |
-| “No overlap, no waste” | Hard-block / down-rank what they already take (A: multi; K: vitamin D) |
-| Research-backed copy | Honest evidence strength + NIH ODS / Cochrane / ISSN / Examine-style citations |
-| Safety as a product risk | Allergies, meds, HRT, possible OSA, high caffeine — **first-class**, not a footnote |
-
-**What is simplified vs production**
-
-- No robotics, fulfillment, labeling, or shipping.
-- No proprietary model, no chat UI, no monthly “swap the formula” loop.
-- Hybrid of **explicit vectors + inspectable rules**, not a black-box ranker. That is the point of a take-home: you can walk the scoring on a whiteboard.
-- Evidence notes are literature-level summaries, not CLD-9’s internal evidence graph.
-- Magnesium is **malate** because that is what the public builder lists, even though sleep blogs prefer glycinate. We do not invent a form they do not sell.
-- Omega-3 and iron are **not** in the public library, so we do not recommend them. We say that out loud (K already takes omega-3; A has heavy periods).
-
----
-
-## Architecture
-
-```
-quiz / persona          catalog item
-      │                       │
-      ▼                       ▼
-18-dim need vector      18-dim benefit vector
-      │                       │
-      └──────── cosine ───────┘
-                    │
-           + goal-alignment bonus
-           + combo bonus (theanine↔coffee, Mg↔theanine, …)
-                    │
-              safety layer
-         hard block | penalty | note
-                    │
-        greedy 4–8 assemble
-        (1 stimulant max, ≤2 bulky powders, ≤2 vitamins)
-                    │
-        ranked sachet + explanations
+    classDef focal fill:#eb6c36,stroke:#eb6c36,color:#fff,font-weight:bold
+    class H focal
 ```
 
-### 1. Vectorization
+Every recommended line prints its goal fit, evidence note, and safety consideration, so a reviewer can trace each score by hand.
 
-Shared dimensions (see `src/features.rs`):
+### Safety layer (`src/safety.rs`)
 
-`energy_nonstim`, `energy_stim`, `sleep_onset`, `sleep_maintenance`, `sleep_quality`, `stress`, `calm_focus`, `cognition`, `performance`, `power`, `endurance`, `hydration`, `healthy_ageing`, `joint_comfort`, `recovery`, `wellness`, `mood`, `circulation`.
-
-`src/persona.rs` `vectorize()` maps quiz fields onto that space. Goals dominate; sleep/caffeine/training/life-stage overlay. A sleep goal or ≥3 coffees drives `energy_stim` toward 0 so the model is not rewarded for pouring caffeine on an already-wired user.
-
-Each of the 20 actives has a hand-set benefit vector in `src/catalog.rs` from its CLD-9 category plus what the evidence actually supports (ginkgo is circulation/cognition, not sleep; B12 is deficiency-not-stimulant; etc.).
-
-### 2. Scoring
-
-```
-raw   = 0.72 * cosine(persona, item) + 0.28 * goal_alignment
-final = raw * safety_multiplier + combo_bonus
-```
-
-`goal_alignment` is a small explicit table so a reviewer can see *why* magnesium beats ginkgo for Persona A’s sleep goal even if both have some cosine.
-
-### 3. Safety layer (this is the demo)
-
-Implemented in `src/safety.rs`. Goal matching **cannot** override a hard block.
+Runs before ranking (hard blocks) and during scoring (penalties). A few examples:
 
 | Signal | Action | Example |
 |---|---|---|
-| Allergy / avoid-list token | **Hard block** | `ashwagandha` drops KSM-66; `caffeine` drops caffeine **and** green tea extract |
-| Pregnancy flag | Hard block ashwagandha | modeled even though none of A/B/C/K are pregnant |
-| Blood thinners | Hard block ginkgo (and green tea) | antiplatelet / bleeding signal |
-| MAOI | Hard block DLPA | catecholamine precursor |
-| Possible OSA (B) | Hard block stimulants; clinician banner | supplements do not treat apneas |
-| Sleep goal + ≥2 coffees, or late/high caffeine, or wired-at-bedtime | Hard block caffeine + green tea | prefer theanine / magnesium |
-| Existing vitamin D (K) or multi that includes D (A) | Hard block 4000 IU D3 | catalog dose **is** the IOM UL |
-| Existing multi | Strong penalty / block on B6, B12, C, zinc | no silent double-stack |
-| Already taking the same active | Hard block | creatine, magnesium, ashwagandha, theanine |
-| HRT (K) | Strong penalty ashwagandha + boron; moderate ginkgo | do not “manage” hormones beside prescribed HRT |
-| Heavy / irregular periods (A) | Clinician flag; no invented iron | iron is not in the CLD-9 catalog |
+| Allergy / avoid-list token | Hard block | `ashwagandha` drops KSM-66; `caffeine` drops caffeine and green tea extract |
+| Blood thinners | Hard block ginkgo, green tea | antiplatelet / bleeding risk |
+| Possible OSA (Persona B) | Hard block stimulants, clinician banner | supplements do not treat apnea |
+| Sleep goal + high caffeine | Hard block caffeine, green tea | prefer theanine / magnesium instead |
+| Existing multivitamin or vitamin D | Block or down-rank overlapping actives | no silent double-stack |
+| HRT (Persona K) | Strong penalty on ashwagandha, boron | do not touch prescribed hormone management |
 
-Every recommended line prints **goal fit + evidence note + safety consideration**.
-
-### 4. How to extend the quiz
-
-Add a field on `Persona`, fold it into `vectorize()` (need signal) and/or `safety::evaluate()` (risk signal). New catalog rows must use a dose CLD-9 actually offers — do not invent bottles. Tests in `safety.rs` / `engine.rs` are the regression net for “allergies and meds stay first-class.”
-
----
-
-## Proposed quiz (and why it changes the stack)
-
-| Question | Why it matters | How it influences recs |
-|---|---|---|
-| Age band | Sarcopenia, B12 absorption, bone | Creatine / ageing dims up after 55; B12 only if a gap exists |
-| Sex | Context for cycle / HRT notes | Does not blindly swap formulas; drives clinician flags |
-| Diet | Nutrient-gap prior | Pescatarian + existing omega-3 → catalog-gap note, not a fake EPA line |
-| Occupation / hours | Driving, seated stress, missed meals | Hydration pair (taurine + salt) for field sales |
-| Sleep duration, night waking, wired, snoring, witnessed apneas | Separates “sleep hygiene + magnesium” from **possible OSA** | Apneas → medical referral, never a “treat OSA” stack |
-| Training type / frequency | Justifies creatine / citrulline / bulky powders | No-training + sleep goal ≠ 6 g citrulline |
-| Coffee cups + last-dose timing | Strongest everyday safety lever | ≥2–3 cups or late coffee → block sachet caffeine / EGCG; boost theanine |
-| Cycle / menopause / HRT | Avoid hormone-active extras | HRT → down-rank ashwagandha & boron |
-| Medications | Interaction hard blocks | Blood thinners × ginkgo; MAOI × DLPA |
-| Current supplements | Dedup / no waste | Multi covers micros; existing D blocks 4000 IU |
-| Allergies / avoid list | Hard exclusions | Worked demo below |
-| Goals (1–3) | Primary vector weights | Energy+sleep ≠ energy+stress ≠ ageing+joints |
-| Body-weight band | OSA risk context, dosing conservatism | Not a BMI calculator |
-
----
-
-## Worked allergy example (run this)
-
-```bash
-cargo run -- --demo-allergy
-# or
-cargo run -- --persona A --allergy ashwagandha
-cargo run -- --persona C --allergy caffeine
-```
-
-**Persona A + `allergies: ["ashwagandha"]`**
-
-- Baseline includes Ashwagandha Root Extract (stress/sleep-quality adaptogen).
-- After the flag it is **hard-blocked**. The sachet re-ranks the next valid catalog pick (typically creatine or cordyceps — she already trains 3×/week).
-- Magnesium and L-theanine stay. Sleep goal still forbids caffeine / green tea.
-
-**Persona C + `allergies: ["caffeine"]`**
-
-- Even if energy-scoring would have liked a stimulant, caffeine powder **and** green tea extract (residual caffeine + EGCG) are hard-blocked.
-- Stack stays theanine / ashwagandha / magnesium / non-stim energy (ALCAR, cordyceps, alpha-GPC).
-- This is the point: **safety is not a post-hoc disclaimer**. It changes the packet.
+Full rule table and rationale: `src/safety.rs`.
 
 ---
 
 ## Personas (always printed)
 
-| ID | One-line | What the engine must not get wrong |
+| ID | Profile | What the engine must not get wrong |
 |---|---|---|
-| **A** | 45–54 F, perimenopause, 2 coffees, trains 3×, multi, energy+sleep | Night waking → Mg/theanine; no extra caffeine; no iron invention; don’t restack the multi |
-| **B** | 45–54 M, 8h+ unrefreshed, snores, witnessed apneas, 3 coffees, higher weight | **See a clinician / sleep study.** No “treat OSA.” No stimulants. Adjunct only |
-| **C** | 25–34 M, <6h, wired, 4 late coffees, seated, energy+stress | No more caffeine. Theanine to take the edge off coffee he already drinks. Normal bloods → don’t sell B12 as energy |
-| **K** | 55–64 F, pescatarian, HRT, vit D + omega-3, ageing+joints | Creatine for ageing muscle; **no 4000 IU D on top**; ashwagandha/boron penalized; omega-3 catalog gap |
+| **A** | 45-54F, perimenopause, energy + sleep | Night waking routes to magnesium/theanine; no added caffeine; no invented iron |
+| **B** | 45-54M, snores + witnessed apneas | Clinician flag first. No stimulants. No "treat OSA" framing |
+| **C** | 25-34M, wired, 4 late coffees | No more caffeine; theanine takes the edge off what he already drinks |
+| **K** | 55-64F, post-menopause, on HRT | Creatine for muscle; no extra vitamin D; ashwagandha/boron penalized |
+
+Worked allergy example: `cargo run -- --demo-allergy` removes ashwagandha from Persona A and caffeine (plus green tea) from Persona C, then re-ranks the stack from what's left.
+
+---
+
+## What's simplified vs. production
+
+- No fulfillment, labeling, shipping, or chat UI — this is the matching engine only.
+- Explicit vectors and inspectable rules, not a black-box model. That's the point of a take-home: a reviewer can walk the scoring on a whiteboard.
+- The catalog is locked to CLD-9's public 20 actives and their offered doses. We don't invent a form or a dose they don't sell — magnesium stays malate, not glycinate, because that's what the builder lists.
+- Omega-3 and iron aren't in the public catalog, so the engine says so instead of inventing a line for them.
 
 ---
 
@@ -193,32 +96,18 @@ src/features.rs   shared 18-dim space + cosine
 src/persona.rs    quiz records + vectorize()
 src/catalog.rs    locked CLD-9 20-active library
 src/safety.rs     allergies / meds / conditions / dedup
-src/engine.rs     score, dose, assemble 4–8, explain
-src/report.rs     CLI + markdown
-src/main.rs       cargo run interface
-src/lib.rs        crate root
+src/engine.rs     score, dose, assemble 4-8, explain
+src/report.rs     CLI + markdown rendering
+src/tui.rs        interactive ratatui picker
+src/main.rs       cargo run entry point
 data/catalog.md   human-readable catalog lock
 outputs/          committed sample runs
 ```
 
-Zero runtime dependencies — `cargo run` is the whole product.
+To extend the quiz: add a field on `Persona`, fold it into `vectorize()` (need signal) and/or `safety::evaluate()` (risk signal). New catalog rows must use a dose CLD-9 actually offers.
 
 ---
 
 ## Evidence posture
 
-Strength labels are honest: **strong** (caffeine alertness, creatine performance, vitamin D/B12/zinc when deficient), **moderate** (theanine, ashwagandha stress, magnesium if low, citrulline for training, taurine endurance), **limited / mixed / insufficient** (cordyceps, alpha-GPC, ginkgo in healthy adults, boron, DLPA, Himalayan-salt branding).
-
-Sources cited on each line: NIH Office of Dietary Supplements fact sheets, Cochrane (ginkgo; vitamin C and colds), ISSN position stands (caffeine, creatine), and Examine-style trial summaries. We would rather under-claim than write brochure copy.
-
----
-
-## Live walkthrough (5 minutes)
-
-1. Open `src/persona.rs` `vectorize()` — show Persona A’s sleep-maintenance vs Persona K’s ageing/joint weights.
-2. Open `src/catalog.rs` — same 20 rows as the public builder, including the malate quirk and 4000 IU D.
-3. Open `src/safety.rs` — allergy hard-block, OSA banner, HRT penalties, multi/D dedup.
-4. `cargo run -- --persona B` — clinician flag is the first thing you read.
-5. `cargo run -- --demo-allergy` — stack actually changes.
-
-That is the product: **quiz → match from their real library → one safe packet.**
+Strength labels are honest: **strong** (caffeine alertness, creatine performance, vitamin D/B12/zinc when deficient), **moderate** (theanine, ashwagandha, magnesium if low, citrulline, taurine), **limited/mixed** (cordyceps, alpha-GPC, ginkgo in healthy adults, boron, DLPA). Sources cited on each line: NIH Office of Dietary Supplements, Cochrane, ISSN position stands, Examine-style trial summaries. Under-claiming beats brochure copy.
