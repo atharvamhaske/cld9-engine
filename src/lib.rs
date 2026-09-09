@@ -10,6 +10,7 @@ pub mod features;
 pub mod persona;
 pub mod report;
 pub mod safety;
+pub mod tui;
 
 pub use engine::{allergy_demo, recommend, Recommendation};
 pub use persona::{all_personas, persona_by_id, Persona};

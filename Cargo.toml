@@ -13,3 +13,7 @@ path = "src/main.rs"
 [lib]
 name = "cld9_engine"
 path = "src/lib.rs"
+
+[dependencies]
+crossterm = "0.29.0"
+ratatui = "0.30.2"

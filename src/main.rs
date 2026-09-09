@@ -25,6 +25,11 @@ fn main() {
         return;
     }
 
+    if args.iter().any(|a| a == "--tui") {
+        cld9_engine::tui::run().expect("tui session");
+        return;
+    }
+
     let write = args.iter().any(|a| a == "--write-outputs");
     let demo = args.iter().any(|a| a == "--demo-allergy");
     let persona_id = arg_value(&args, "--persona");
@@ -178,6 +183,7 @@ USAGE:
   cargo run -- --persona C --allergy caffeine
   cargo run -- --demo-allergy
   cargo run -- --write-outputs
+  cargo run -- --tui
 
 Personas: A, B, C, K
 ",
