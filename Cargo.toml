@@ -1,0 +1,15 @@
+[package]
+name = "cld9-engine"
+version = "0.1.0"
+edition = "2021"
+description = "CLD-9-style personalized daily-sachet supplement recommendation engine (take-home)"
+license = "MIT"
+readme = "README.md"
+
+[[bin]]
+name = "cld9-engine"
+path = "src/main.rs"
+
+[lib]
+name = "cld9_engine"
+path = "src/lib.rs"
