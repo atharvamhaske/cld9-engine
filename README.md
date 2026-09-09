@@ -24,6 +24,8 @@ cargo run -- --tui
 
 Sample artifacts are already committed under `outputs/`.
 
+See [`HLD.md`](HLD.md) for a per-layer breakdown with Mermaid diagrams.
+
 ---
 
 ## How it works
