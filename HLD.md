@@ -92,7 +92,7 @@ flowchart TD
 
 ## Safety layer (`src/safety.rs`)
 
-Runs inside `score_one()`, before ranking. A hard block sets the multiplier to `0.0` — no downstream step can raise it back.
+Runs inside `score_one()`, before ranking. A hard block sets the multiplier to `0.0`. No downstream step can raise it back.
 
 ```mermaid
 flowchart TD
@@ -114,7 +114,7 @@ flowchart TD
 
 ## Report / TUI layer (`src/report.rs`, `src/tui.rs`)
 
-Two renderers over the same `Recommendation` struct. Neither one recomputes a score — they only format what `engine.rs` already produced.
+Two renderers over the same `Recommendation` struct. Neither one recomputes a score. They only format what `engine.rs` already produced.
 
 ```mermaid
 flowchart LR

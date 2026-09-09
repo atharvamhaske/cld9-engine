@@ -30,7 +30,7 @@ Sample artifacts are already committed under `outputs/`.
 
 1. **Vectorize.** Persona quiz answers and each catalog ingredient map onto the same 18-dimension benefit space (`src/features.rs`, `src/persona.rs`, `src/catalog.rs`).
 2. **Score.** Cosine similarity between the two vectors, blended with a goal-alignment bonus and a combo bonus for pairs that work together (theanine + coffee, magnesium + a sleep goal).
-3. **Filter for safety.** Allergies, medications, and conditions can hard-block or penalize an ingredient. A hard block always wins — goal fit cannot undo it.
+3. **Filter for safety.** Allergies, medications, and conditions can hard-block or penalize an ingredient. A hard block always wins. Goal fit cannot undo it.
 4. **Assemble.** Greedy pick of 4-8 actives, capped at one stimulant, two bulky powders, two vitamins.
 
 ```mermaid
@@ -41,7 +41,7 @@ flowchart TD
     D --> E["Safety check<br/>allergies · meds · conditions"]
     E --> F{Hard block?}
     F -->|No| G["Apply severity × combo bonus"]
-    F -->|Yes| H["Score forced to 0<br/>excluded — goal fit cannot override"]
+    F -->|Yes| H["Score forced to 0<br/>excluded, goal fit cannot override"]
     G --> I["Ranked into stack<br/>top 4-8 actives"]
 
     classDef focal fill:#eb6c36,stroke:#eb6c36,color:#fff,font-weight:bold
@@ -82,9 +82,9 @@ Worked allergy example: `cargo run -- --demo-allergy` removes ashwagandha from P
 
 ## What's simplified vs. production
 
-- No fulfillment, labeling, shipping, or chat UI — this is the matching engine only.
+- No fulfillment, labeling, shipping, or chat UI. This is the matching engine only.
 - Explicit vectors and inspectable rules, not a black-box model. That's the point of a take-home: a reviewer can walk the scoring on a whiteboard.
-- The catalog is locked to CLD-9's public 20 actives and their offered doses. We don't invent a form or a dose they don't sell — magnesium stays malate, not glycinate, because that's what the builder lists.
+- The catalog is locked to CLD-9's public 20 actives and their offered doses. We don't invent a form or a dose they don't sell: magnesium stays malate, not glycinate, because that's what the builder lists.
 - Omega-3 and iron aren't in the public catalog, so the engine says so instead of inventing a line for them.
 
 ---
